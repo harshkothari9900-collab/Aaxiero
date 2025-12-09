@@ -1,0 +1,137 @@
+const { Project } = require('../Models/Project');
+const fs = require('fs');
+const path = require('path');
+
+const createProject = async (req, res) => {
+  try {
+    const projectName = req.body.projectName ? String(req.body.projectName).trim() : '';
+    const categoryId = req.body.categoryId;
+    if (!projectName) return res.status(400).json({ success: false, message: 'Project Name required' });
+    if (!categoryId) return res.status(400).json({ success: false, message: 'Category id required' });
+
+    // Support both legacy single-file (`req.file`) and new multi-field (`req.files`)
+    const coverImage = req.file ? `/uploads/${req.file.filename}` : (req.files && req.files.coverImage ? `/uploads/${req.files.coverImage[0].filename}` : undefined);
+
+    // Collect image1..image8 if provided
+    const images = {};
+    for (let i = 1; i <= 8; i++) {
+      const key = `image${i}`;
+      if (req.files && req.files[key] && req.files[key][0]) {
+        images[key] = `/uploads/${req.files[key][0].filename}`;
+      }
+    }
+
+    const p = new Project(Object.assign({ projectName, categoryId, coverImage }, images));
+    await p.save();
+    return res.status(201).json({ success: true, project: p });
+  } catch (err) {
+    console.error('createProject error', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+const getProjects = async (req, res) => {
+  try {
+    const projects = await Project.find().populate('categoryId', 'name').sort({ createdAt: -1 }).lean();
+    return res.json({ success: true, projects });
+  } catch (err) {
+    console.error('getProjects error', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+const getProjectById = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const p = await Project.findById(id).populate('categoryId', 'name');
+    if (!p) return res.status(404).json({ success: false, message: 'Project not found' });
+    return res.json({ success: true, project: p });
+  } catch (err) {
+    console.error('getProjectById error', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+const updateProject = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const projectName = req.body.projectName ? String(req.body.projectName).trim() : undefined;
+    const categoryId = req.body.categoryId;
+
+    const update = {};
+    if (projectName) update.projectName = projectName;
+    if (categoryId) update.categoryId = categoryId;
+    // Support single and multi-file uploads
+    if (req.file) update.coverImage = `/uploads/${req.file.filename}`;
+    if (req.files && req.files.coverImage && req.files.coverImage[0]) update.coverImage = `/uploads/${req.files.coverImage[0].filename}`;
+
+    // Handle image1..image8 updates
+    for (let i = 1; i <= 8; i++) {
+      const key = `image${i}`;
+      if (req.files && req.files[key] && req.files[key][0]) {
+        update[key] = `/uploads/${req.files[key][0].filename}`;
+      }
+    }
+
+    const existing = await Project.findById(id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Project not found' });
+
+    // If new file uploaded, delete old file
+    if ((req.file || (req.files && req.files.coverImage)) && existing.coverImage) {
+      const oldPath = path.join(process.cwd(), existing.coverImage.replace(/^\//, ''));
+      fs.unlink(oldPath, (err) => { if (err) console.warn('failed to delete old file', err); });
+    }
+
+    // Delete old image1..image8 when replaced
+    for (let i = 1; i <= 8; i++) {
+      const key = `image${i}`;
+      if (update[key] && existing[key]) {
+        const oldPath = path.join(process.cwd(), existing[key].replace(/^\//, ''));
+        fs.unlink(oldPath, (err) => { if (err) console.warn(`failed to delete old ${key}`, err); });
+      }
+    }
+
+    const updated = await Project.findByIdAndUpdate(id, update, { new: true });
+    return res.json({ success: true, project: updated });
+  } catch (err) {
+    console.error('updateProject error', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+const deleteProject = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const existing = await Project.findById(id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Project not found' });
+
+    // Delete cover image file if exists
+    if (existing.coverImage) {
+      const p = path.join(process.cwd(), existing.coverImage.replace(/^\//, ''));
+      fs.unlink(p, (err) => { if (err) console.warn('failed to delete file', err); });
+    }
+
+    // Delete image1..image8 if exist
+    for (let i = 1; i <= 8; i++) {
+      const key = `image${i}`;
+      if (existing[key]) {
+        const p = path.join(process.cwd(), existing[key].replace(/^\//, ''));
+        fs.unlink(p, (err) => { if (err) console.warn(`failed to delete ${key}`, err); });
+      }
+    }
+
+    await Project.findByIdAndDelete(id);
+    return res.json({ success: true, message: 'Project deleted' });
+  } catch (err) {
+    console.error('deleteProject error', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+module.exports = {
+  createProject,
+  getProjects,
+  getProjectById,
+  updateProject,
+  deleteProject
+};
