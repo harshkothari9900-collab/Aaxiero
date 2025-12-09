@@ -1,11 +1,13 @@
 const { Project } = require('../Models/Project');
+const { SubCategory } = require('../Models/SubCategory');
 const fs = require('fs');
 const path = require('path');
 
 const createProject = async (req, res) => {
   try {
     const projectName = req.body.projectName ? String(req.body.projectName).trim() : '';
-    const subCategoryId = req.body.subCategoryId;
+    // Accept legacy `categoryId` as alias for `subCategoryId`
+    const subCategoryId = req.body.subCategoryId || req.body.categoryId;
     const subsubCategoryId = req.body.subsubCategoryId;
     if (!projectName) return res.status(400).json({ success: false, message: 'Project Name required' });
     if (!subCategoryId && !subsubCategoryId) return res.status(400).json({ success: false, message: 'Category id or SubCategory id required' });
@@ -24,7 +26,15 @@ const createProject = async (req, res) => {
 
     const p = new Project(Object.assign({ projectName, subCategoryId, subsubCategoryId, coverImage }, images));
     await p.save();
-    return res.status(201).json({ success: true, project: p });
+    const out = p.toObject ? p.toObject() : p;
+    // Normalize legacy field name (if older records used `categoryId`)
+    if ((!out.subCategoryId || typeof out.subCategoryId === 'string') && out.categoryId) {
+      const sub = await SubCategory.findById(out.categoryId).lean();
+      if (sub) out.subCategoryId = sub;
+      else out.subCategoryId = out.categoryId;
+    }
+    if (out.categoryId) delete out.categoryId;
+    return res.status(201).json({ success: true, project: out });
   } catch (err) {
     console.error('createProject error', err);
     return res.status(500).json({ success: false, message: 'Server error' });
@@ -33,7 +43,22 @@ const createProject = async (req, res) => {
 
 const getProjects = async (req, res) => {
   try {
-    const projects = await Project.find().populate('subCategoryId', 'name').populate('subsubCategoryId', 'name').sort({ createdAt: -1 }).lean();
+    const projects = await Project.find().populate('subCategoryId', 'name image').populate('subsubCategoryId', 'name image').sort({ createdAt: -1 }).lean();
+    // Normalize legacy `categoryId` to `subCategoryId` for older documents
+    const legacyIds = projects.filter(p => (!p.subCategoryId || typeof p.subCategoryId === 'string') && p.categoryId).map(p => p.categoryId);
+    if (legacyIds.length) {
+      const subs = await SubCategory.find({ _id: { $in: legacyIds } }).lean();
+      const map = {};
+      subs.forEach(s => { map[String(s._id)] = s; });
+      projects.forEach((proj) => {
+        if ((!proj.subCategoryId || typeof proj.subCategoryId === 'string') && proj.categoryId) {
+          proj.subCategoryId = map[String(proj.categoryId)] || proj.categoryId;
+        }
+        if (proj.categoryId) delete proj.categoryId;
+      });
+    } else {
+      projects.forEach((proj) => { if (proj.categoryId) delete proj.categoryId; });
+    }
     return res.json({ success: true, projects });
   } catch (err) {
     console.error('getProjects error', err);
@@ -44,9 +69,16 @@ const getProjects = async (req, res) => {
 const getProjectById = async (req, res) => {
   try {
     const id = req.params.id;
-    const p = await Project.findById(id).populate('subCategoryId', 'name').populate('subsubCategoryId', 'name');
+    const p = await Project.findById(id).populate('subCategoryId', 'name image').populate('subsubCategoryId', 'name image');
     if (!p) return res.status(404).json({ success: false, message: 'Project not found' });
-    return res.json({ success: true, project: p });
+    const out = p.toObject ? p.toObject() : p;
+    if ((!out.subCategoryId || typeof out.subCategoryId === 'string') && out.categoryId) {
+      const sub = await SubCategory.findById(out.categoryId).lean();
+      if (sub) out.subCategoryId = sub;
+      else out.subCategoryId = out.categoryId;
+    }
+    if (out.categoryId) delete out.categoryId;
+    return res.json({ success: true, project: out });
   } catch (err) {
     console.error('getProjectById error', err);
     return res.status(500).json({ success: false, message: 'Server error' });
@@ -57,7 +89,8 @@ const updateProject = async (req, res) => {
   try {
     const id = req.params.id;
     const projectName = req.body.projectName ? String(req.body.projectName).trim() : undefined;
-    const subCategoryId = req.body.subCategoryId;
+    // Accept legacy `categoryId` as alias for `subCategoryId`
+    const subCategoryId = req.body.subCategoryId || req.body.categoryId;
     const subsubCategoryId = req.body.subsubCategoryId;
 
     const update = {};
@@ -94,8 +127,17 @@ const updateProject = async (req, res) => {
       }
     }
 
-    const updated = await Project.findByIdAndUpdate(id, update, { new: true });
-    return res.json({ success: true, project: updated });
+    const updated = await Project.findByIdAndUpdate(id, update, { new: true }).populate('subCategoryId', 'name image').populate('subsubCategoryId', 'name image');
+    const out = updated ? (updated.toObject ? updated.toObject() : updated) : null;
+    if (out) {
+      if ((!out.subCategoryId || typeof out.subCategoryId === 'string') && out.categoryId) {
+        const sub = await SubCategory.findById(out.categoryId).lean();
+        if (sub) out.subCategoryId = sub;
+        else out.subCategoryId = out.categoryId;
+      }
+      if (out.categoryId) delete out.categoryId;
+    }
+    return res.json({ success: true, project: out });
   } catch (err) {
     console.error('updateProject error', err);
     return res.status(500).json({ success: false, message: 'Server error' });
