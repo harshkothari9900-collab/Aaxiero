@@ -5,9 +5,10 @@ const path = require('path');
 const createProject = async (req, res) => {
   try {
     const projectName = req.body.projectName ? String(req.body.projectName).trim() : '';
-    const categoryId = req.body.categoryId;
+    const subCategoryId = req.body.subCategoryId;
+    const subsubCategoryId = req.body.subsubCategoryId;
     if (!projectName) return res.status(400).json({ success: false, message: 'Project Name required' });
-    if (!categoryId) return res.status(400).json({ success: false, message: 'Category id required' });
+    if (!subCategoryId && !subsubCategoryId) return res.status(400).json({ success: false, message: 'Category id or SubCategory id required' });
 
     // Support both legacy single-file (`req.file`) and new multi-field (`req.files`)
     const coverImage = req.file ? `/uploads/${req.file.filename}` : (req.files && req.files.coverImage ? `/uploads/${req.files.coverImage[0].filename}` : undefined);
@@ -21,7 +22,7 @@ const createProject = async (req, res) => {
       }
     }
 
-    const p = new Project(Object.assign({ projectName, categoryId, coverImage }, images));
+    const p = new Project(Object.assign({ projectName, subCategoryId, subsubCategoryId, coverImage }, images));
     await p.save();
     return res.status(201).json({ success: true, project: p });
   } catch (err) {
@@ -32,7 +33,7 @@ const createProject = async (req, res) => {
 
 const getProjects = async (req, res) => {
   try {
-    const projects = await Project.find().populate('categoryId', 'name').sort({ createdAt: -1 }).lean();
+    const projects = await Project.find().populate('subCategoryId', 'name').populate('subsubCategoryId', 'name').sort({ createdAt: -1 }).lean();
     return res.json({ success: true, projects });
   } catch (err) {
     console.error('getProjects error', err);
@@ -43,7 +44,7 @@ const getProjects = async (req, res) => {
 const getProjectById = async (req, res) => {
   try {
     const id = req.params.id;
-    const p = await Project.findById(id).populate('categoryId', 'name');
+    const p = await Project.findById(id).populate('subCategoryId', 'name').populate('subsubCategoryId', 'name');
     if (!p) return res.status(404).json({ success: false, message: 'Project not found' });
     return res.json({ success: true, project: p });
   } catch (err) {
@@ -56,11 +57,13 @@ const updateProject = async (req, res) => {
   try {
     const id = req.params.id;
     const projectName = req.body.projectName ? String(req.body.projectName).trim() : undefined;
-    const categoryId = req.body.categoryId;
+    const subCategoryId = req.body.subCategoryId;
+    const subsubCategoryId = req.body.subsubCategoryId;
 
     const update = {};
     if (projectName) update.projectName = projectName;
-    if (categoryId) update.categoryId = categoryId;
+    if (subCategoryId) update.subCategoryId = subCategoryId;
+    if (subsubCategoryId) update.subsubCategoryId = subsubCategoryId;
     // Support single and multi-file uploads
     if (req.file) update.coverImage = `/uploads/${req.file.filename}`;
     if (req.files && req.files.coverImage && req.files.coverImage[0]) update.coverImage = `/uploads/${req.files.coverImage[0].filename}`;
