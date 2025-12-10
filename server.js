@@ -9,6 +9,10 @@ dotenv.config();
 
 const app = express();
 
+// If the app runs behind a reverse proxy (nginx, load balancer),
+// enable trusting the proxy so `req.protocol` and host are correct.
+app.set('trust proxy', true);
+
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
