@@ -173,10 +173,36 @@ const deleteProject = async (req, res) => {
   }
 };
 
+// Delete a specific image slot (image1..image8) for a project
+const deleteProjectImageSlot = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const slot = Number(req.query.slot);
+    if (!id || !slot || slot < 1 || slot > 8) {
+      return res.status(400).json({ success: false, message: 'Valid slot (1-8) required' });
+    }
+    const key = `image${slot}`;
+    const project = await Project.findById(id);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
+    // Delete file from disk if exists
+    if (project[key]) {
+      const filePath = path.join(process.cwd(), project[key].replace(/^\/+/, ''));
+      fs.unlink(filePath, (err) => { if (err) console.warn(`Failed to delete file for ${key}:`, err); });
+    }
+    project[key] = '';
+    await project.save();
+    return res.json({ success: true, message: `Deleted ${key} for project`, project });
+  } catch (err) {
+    console.error('deleteProjectImageSlot error', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 module.exports = {
   createProject,
   getProjects,
   getProjectById,
   updateProject,
-  deleteProject
+  deleteProject,
+  deleteProjectImageSlot
 };

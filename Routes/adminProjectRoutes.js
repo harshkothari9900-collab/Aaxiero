@@ -47,6 +47,9 @@ router.post('/', upload.fields(uploadFields), createProject);
 router.get('/', getProjects);
 router.get('/:id', getProjectById);
 router.put('/:id', upload.fields(uploadFields), updateProject);
+// Delete a specific image slot (image1..image8) for a project
+const { deleteProjectImageSlot } = require('../Controller/projectController');
+router.delete('/:id/images', deleteProjectImageSlot);
 router.delete('/:id', deleteProject);
 
 module.exports = router;
