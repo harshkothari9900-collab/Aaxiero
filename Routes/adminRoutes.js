@@ -21,7 +21,7 @@ router.use('/admin/project', adminProjectRoutes);
 router.use('/admin/icons', adminIconRoutes);
 // Mount admin service endpoints under /admin/service
 router.use('/admin/service', adminServiceRoutes);
-// Mount admin gallery endpoints under /admin/gallry
-router.use('/admin/gallry', adminGalleryRoutes);
+// Mount admin gallery endpoints under /admin/gallery
+router.use('/admin/gallery', adminGalleryRoutes);
 
 module.exports = router;

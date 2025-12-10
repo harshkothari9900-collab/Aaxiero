@@ -126,10 +126,72 @@ const deleteGallery = async (req, res) => {
   }
 };
 
+const addImagesToGallery = async (req, res) => {
+  try {
+    const galleryId = req.params.galleryId;
+    const files = req.files || [];
+    
+    if (!files.length) return res.status(400).json({ success: false, message: 'At least one image required' });
+
+    const existing = await Gallery.findById(galleryId);
+    if (!existing) return res.status(404).json({ success: false, message: 'Gallery not found' });
+
+    if (existing.images.length + files.length > MAX_IMAGES) {
+      // cleanup uploaded files
+      files.forEach(f => {
+        const p = path.join(process.cwd(), 'uploads', f.filename);
+        fs.unlink(p, () => {});
+      });
+      return res.status(400).json({ success: false, message: `Max ${MAX_IMAGES} images allowed per category` });
+    }
+
+    const newPaths = files.map(f => `/uploads/${f.filename}`);
+    existing.images.push(...newPaths);
+    await existing.save();
+    return res.status(200).json({ success: true, gallery: existing });
+  } catch (err) {
+    console.error('addImagesToGallery error', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+const deleteImageFromGallery = async (req, res) => {
+  try {
+    const galleryId = req.params.galleryId;
+    const imageUrl = req.body.imageUrl;
+
+    if (!imageUrl) return res.status(400).json({ success: false, message: 'Image URL required' });
+
+    const gallery = await Gallery.findById(galleryId);
+    if (!gallery) return res.status(404).json({ success: false, message: 'Gallery not found' });
+
+    // Check if image exists in gallery
+    const imageIndex = gallery.images.indexOf(imageUrl);
+    if (imageIndex === -1) return res.status(404).json({ success: false, message: 'Image not found in gallery' });
+
+    // Delete the physical file
+    const p = path.join(process.cwd(), imageUrl.replace(/^\//, ''));
+    fs.unlink(p, (err) => {
+      if (err) console.error('Error deleting file:', err);
+    });
+
+    // Remove from array
+    gallery.images.splice(imageIndex, 1);
+    await gallery.save();
+
+    return res.json({ success: true, message: 'Image deleted', gallery });
+  } catch (err) {
+    console.error('deleteImageFromGallery error', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 module.exports = {
   createOrAddGallery,
   getGalleries,
   getGalleryByCategory,
   replaceImages,
-  deleteGallery
+  deleteGallery,
+  addImagesToGallery,
+  deleteImageFromGallery
 };

@@ -6,7 +6,7 @@ const path = require('path');
 // Multer setup to handle multipart/form-data (file + text fields)
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, path.join(__dirname, '..', 'uploads', 'subcategories'));
+    cb(null, path.join(__dirname, '..', 'uploads'));
   },
   filename: function (req, file, cb) {
     const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);

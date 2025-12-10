@@ -17,7 +17,7 @@ const createSubCategory = async (req, res) => {
       // `app.set('trust proxy', true)` is enabled in server.js so protocol is correct.
       const proto = req.protocol || 'http';
       const host = req.get('host');
-      imagePath = `${proto}://${host}/uploads/subcategories/${req.file.filename}`;
+      imagePath = `${proto}://${host}/uploads/${req.file.filename}`;
     }
 
     const sc = new SubCategory({ name, image: imagePath });
@@ -68,7 +68,7 @@ const updateSubCategory = async (req, res) => {
     if (req.file && req.file.filename) {
       const proto = req.protocol || 'http';
       const host = req.get('host');
-      updateData.image = `${proto}://${host}/uploads/subcategories/${req.file.filename}`;
+      updateData.image = `${proto}://${host}/uploads/${req.file.filename}`;
     }
 
     const sc = await SubCategory.findByIdAndUpdate(id, updateData, { new: true });
