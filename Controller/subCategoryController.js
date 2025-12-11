@@ -90,7 +90,6 @@ const updateSubCategory = async (req, res) => {
 const deleteSubCategory = async (req, res) => {
   try {
     const id = req.params.id;
-    const id = req.params.id;
     const scExisting = await SubCategory.findById(id);
     if (!scExisting) return res.status(404).json({ success: false, message: 'Subcategory not found' });
 
