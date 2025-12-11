@@ -59,8 +59,8 @@ const updateSubCategory = async (req, res) => {
     const name = (req.body && req.body.name) ? String(req.body.name).trim() : '';
     if (!name) return res.status(400).json({ success: false, message: 'Subcategory name required' });
 
-    const existing = await SubCategory.findOne({ _id: { $ne: id }, name: { $regex: `^${name}$`, $options: 'i' } });
-    if (existing) return res.status(409).json({ success: false, message: 'Another subcategory with this name exists' });
+    const existingByName = await SubCategory.findOne({ _id: { $ne: id }, name: { $regex: `^${name}$`, $options: 'i' } });
+    if (existingByName) return res.status(409).json({ success: false, message: 'Another subcategory with this name exists' });
 
     // Load existing to handle Cloudinary deletion if needed
     const existing = await SubCategory.findById(id);
