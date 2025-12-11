@@ -59,8 +59,8 @@ const updateCategory = async (req, res) => {
     const name = (req.body && req.body.name) ? String(req.body.name).trim() : '';
     if (!name) return res.status(400).json({ success: false, message: 'Category name required' });
 
-    const existing = await Category.findOne({ _id: { $ne: id }, name: { $regex: `^${name}$`, $options: 'i' } });
-    if (existing) return res.status(409).json({ success: false, message: 'Another category with this name exists' });
+    const existingByName = await Category.findOne({ _id: { $ne: id }, name: { $regex: `^${name}$`, $options: 'i' } });
+    if (existingByName) return res.status(409).json({ success: false, message: 'Another category with this name exists' });
 
     // Load existing to possibly delete old image
     const existing = await Category.findById(id);
