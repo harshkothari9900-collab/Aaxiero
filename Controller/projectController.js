@@ -1,7 +1,6 @@
 const { Project } = require('../Models/Project');
 const { SubCategory } = require('../Models/SubCategory');
-const fs = require('fs');
-const path = require('path');
+const { uploadFile, deleteFile } = require('../Services/cloudinaryService');
 
 const createProject = async (req, res) => {
   try {
@@ -12,19 +11,37 @@ const createProject = async (req, res) => {
     if (!projectName) return res.status(400).json({ success: false, message: 'Project Name required' });
     if (!subCategoryId && !subsubCategoryId) return res.status(400).json({ success: false, message: 'Category id or SubCategory id required' });
 
-    // Support both legacy single-file (`req.file`) and new multi-field (`req.files`)
-    const coverImage = req.file ? `/uploads/${req.file.filename}` : (req.files && req.files.coverImage ? `/uploads/${req.files.coverImage[0].filename}` : undefined);
+    // Handle cover image upload
+    let coverImage = undefined;
+    let coverImagePublicId = undefined;
+    if (req.file) {
+      const upload = await uploadFile(req.file.path, 'projects/cover');
+      coverImage = upload.url;
+      coverImagePublicId = upload.public_id;
+    } else if (req.files && req.files.coverImage && req.files.coverImage[0]) {
+      const upload = await uploadFile(req.files.coverImage[0].path, 'projects/cover');
+      coverImage = upload.url;
+      coverImagePublicId = upload.public_id;
+    }
 
     // Collect image1..image8 if provided
     const images = {};
     for (let i = 1; i <= 8; i++) {
       const key = `image${i}`;
+      const publicIdKey = `${key}PublicId`;
       if (req.files && req.files[key] && req.files[key][0]) {
-        images[key] = `/uploads/${req.files[key][0].filename}`;
+        const upload = await uploadFile(req.files[key][0].path, `projects/${key}`);
+        images[key] = upload.url;
+        images[publicIdKey] = upload.public_id;
       }
     }
 
-    const p = new Project(Object.assign({ projectName, subCategoryId, subsubCategoryId, coverImage }, images));
+    const projectData = { projectName, subCategoryId, subsubCategoryId };
+    if (coverImage) projectData.coverImage = coverImage;
+    if (coverImagePublicId) projectData.coverImagePublicId = coverImagePublicId;
+    Object.assign(projectData, images);
+
+    const p = new Project(projectData);
     await p.save();
     const out = p.toObject ? p.toObject() : p;
     // Normalize legacy field name (if older records used `categoryId`)
@@ -37,7 +54,7 @@ const createProject = async (req, res) => {
     return res.status(201).json({ success: true, project: out });
   } catch (err) {
     console.error('createProject error', err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };
 
@@ -97,33 +114,39 @@ const updateProject = async (req, res) => {
     if (projectName) update.projectName = projectName;
     if (subCategoryId) update.subCategoryId = subCategoryId;
     if (subsubCategoryId) update.subsubCategoryId = subsubCategoryId;
-    // Support single and multi-file uploads
-    if (req.file) update.coverImage = `/uploads/${req.file.filename}`;
-    if (req.files && req.files.coverImage && req.files.coverImage[0]) update.coverImage = `/uploads/${req.files.coverImage[0].filename}`;
-
-    // Handle image1..image8 updates
-    for (let i = 1; i <= 8; i++) {
-      const key = `image${i}`;
-      if (req.files && req.files[key] && req.files[key][0]) {
-        update[key] = `/uploads/${req.files[key][0].filename}`;
-      }
-    }
 
     const existing = await Project.findById(id);
     if (!existing) return res.status(404).json({ success: false, message: 'Project not found' });
 
-    // If new file uploaded, delete old file
-    if ((req.file || (req.files && req.files.coverImage)) && existing.coverImage) {
-      const oldPath = path.join(process.cwd(), existing.coverImage.replace(/^\//, ''));
-      fs.unlink(oldPath, (err) => { if (err) console.warn('failed to delete old file', err); });
+    // Handle cover image upload
+    if (req.file) {
+      if (existing.coverImagePublicId) {
+        await deleteFile(existing.coverImagePublicId);
+      }
+      const upload = await uploadFile(req.file.path, 'projects/cover');
+      update.coverImage = upload.url;
+      update.coverImagePublicId = upload.public_id;
+    } else if (req.files && req.files.coverImage && req.files.coverImage[0]) {
+      if (existing.coverImagePublicId) {
+        await deleteFile(existing.coverImagePublicId);
+      }
+      const upload = await uploadFile(req.files.coverImage[0].path, 'projects/cover');
+      update.coverImage = upload.url;
+      update.coverImagePublicId = upload.public_id;
     }
 
-    // Delete old image1..image8 when replaced
+    // Handle image1..image8 updates
     for (let i = 1; i <= 8; i++) {
       const key = `image${i}`;
-      if (update[key] && existing[key]) {
-        const oldPath = path.join(process.cwd(), existing[key].replace(/^\//, ''));
-        fs.unlink(oldPath, (err) => { if (err) console.warn(`failed to delete old ${key}`, err); });
+      const publicIdKey = `${key}PublicId`;
+      if (req.files && req.files[key] && req.files[key][0]) {
+        // Delete old image if exists
+        if (existing[publicIdKey]) {
+          await deleteFile(existing[publicIdKey]);
+        }
+        const upload = await uploadFile(req.files[key][0].path, `projects/${key}`);
+        update[key] = upload.url;
+        update[publicIdKey] = upload.public_id;
       }
     }
 
@@ -140,7 +163,7 @@ const updateProject = async (req, res) => {
     return res.json({ success: true, project: out });
   } catch (err) {
     console.error('updateProject error', err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };
 
@@ -150,18 +173,16 @@ const deleteProject = async (req, res) => {
     const existing = await Project.findById(id);
     if (!existing) return res.status(404).json({ success: false, message: 'Project not found' });
 
-    // Delete cover image file if exists
-    if (existing.coverImage) {
-      const p = path.join(process.cwd(), existing.coverImage.replace(/^\//, ''));
-      fs.unlink(p, (err) => { if (err) console.warn('failed to delete file', err); });
+    // Delete cover image from Cloudinary if exists
+    if (existing.coverImagePublicId) {
+      await deleteFile(existing.coverImagePublicId);
     }
 
-    // Delete image1..image8 if exist
+    // Delete image1..image8 from Cloudinary if exist
     for (let i = 1; i <= 8; i++) {
-      const key = `image${i}`;
-      if (existing[key]) {
-        const p = path.join(process.cwd(), existing[key].replace(/^\//, ''));
-        fs.unlink(p, (err) => { if (err) console.warn(`failed to delete ${key}`, err); });
+      const publicIdKey = `image${i}PublicId`;
+      if (existing[publicIdKey]) {
+        await deleteFile(existing[publicIdKey]);
       }
     }
 
@@ -169,7 +190,7 @@ const deleteProject = async (req, res) => {
     return res.json({ success: true, message: 'Project deleted' });
   } catch (err) {
     console.error('deleteProject error', err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };
 
@@ -182,19 +203,22 @@ const deleteProjectImageSlot = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Valid slot (1-8) required' });
     }
     const key = `image${slot}`;
+    const publicIdKey = `${key}PublicId`;
     const project = await Project.findById(id);
     if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
-    // Delete file from disk if exists
-    if (project[key]) {
-      const filePath = path.join(process.cwd(), project[key].replace(/^\/+/, ''));
-      fs.unlink(filePath, (err) => { if (err) console.warn(`Failed to delete file for ${key}:`, err); });
+    
+    // Delete from Cloudinary if public ID exists
+    if (project[publicIdKey]) {
+      await deleteFile(project[publicIdKey]);
     }
+    
     project[key] = '';
+    project[publicIdKey] = '';
     await project.save();
     return res.json({ success: true, message: `Deleted ${key} for project`, project });
   } catch (err) {
     console.error('deleteProjectImageSlot error', err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };
 

@@ -1,4 +1,5 @@
 const { Category } = require('../Models/Category');
+const { uploadFile, deleteFile } = require('../Services/cloudinaryService');
 
 // Admin: Create a category
 const createCategory = async (req, res) => {
@@ -9,7 +10,16 @@ const createCategory = async (req, res) => {
     const existing = await Category.findOne({ name: { $regex: `^${name}$`, $options: 'i' } });
     if (existing) return res.status(409).json({ success: false, message: 'Category already exists' });
 
-    const cat = new Category({ name });
+    // If multer stored a file, upload to Cloudinary
+    let image = '';
+    let imagePublicId = '';
+    if (req.file && req.file.path) {
+      const uploaded = await uploadFile(req.file.path, 'categories');
+      image = uploaded.url;
+      imagePublicId = uploaded.public_id;
+    }
+
+    const cat = new Category({ name, image, imagePublicId });
     await cat.save();
     return res.status(201).json({ success: true, category: cat });
   } catch (err) {
@@ -52,8 +62,22 @@ const updateCategory = async (req, res) => {
     const existing = await Category.findOne({ _id: { $ne: id }, name: { $regex: `^${name}$`, $options: 'i' } });
     if (existing) return res.status(409).json({ success: false, message: 'Another category with this name exists' });
 
-    const cat = await Category.findByIdAndUpdate(id, { name }, { new: true });
-    if (!cat) return res.status(404).json({ success: false, message: 'Category not found' });
+    // Load existing to possibly delete old image
+    const existing = await Category.findById(id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Category not found' });
+
+    const updateData = { name };
+    if (req.file && req.file.path) {
+      // delete old image from Cloudinary if present
+      if (existing.imagePublicId) {
+        try { await deleteFile(existing.imagePublicId); } catch (e) { console.warn('Failed deleting old category image from Cloudinary', e); }
+      }
+      const uploaded = await uploadFile(req.file.path, 'categories');
+      updateData.image = uploaded.url;
+      updateData.imagePublicId = uploaded.public_id;
+    }
+
+    const cat = await Category.findByIdAndUpdate(id, updateData, { new: true });
     return res.json({ success: true, category: cat });
   } catch (err) {
     console.error('updateCategory error', err);
@@ -65,8 +89,15 @@ const updateCategory = async (req, res) => {
 const deleteCategory = async (req, res) => {
   try {
     const id = req.params.id;
-    const cat = await Category.findByIdAndDelete(id);
+    const cat = await Category.findById(id);
     if (!cat) return res.status(404).json({ success: false, message: 'Category not found' });
+
+    // delete image from Cloudinary if present
+    if (cat.imagePublicId) {
+      try { await deleteFile(cat.imagePublicId); } catch (e) { console.warn('Failed deleting category image from Cloudinary', e); }
+    }
+
+    await Category.findByIdAndDelete(id);
     return res.json({ success: true, message: 'Category deleted' });
   } catch (err) {
     console.error('deleteCategory error', err);

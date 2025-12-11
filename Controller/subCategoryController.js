@@ -1,4 +1,5 @@
 const { SubCategory } = require('../Models/SubCategory');
+const { uploadFile, deleteFile } = require('../Services/cloudinaryService');
 
 // Create subcategory (admin)
 const createSubCategory = async (req, res) => {
@@ -9,18 +10,16 @@ const createSubCategory = async (req, res) => {
     const existing = await SubCategory.findOne({ name: { $regex: `^${name}$`, $options: 'i' } });
     if (existing) return res.status(409).json({ success: false, message: 'Subcategory already exists' });
 
-    // If multer stored a file, build a full URL for the image field
+    // If multer stored a file, upload it to Cloudinary and store the URL + public id
     let imagePath = '';
-    if (req.file && req.file.filename) {
-      // Build absolute URL so remote clients can access it directly.
-      // Use req.protocol and host; when behind a reverse proxy (nginx) make sure
-      // `app.set('trust proxy', true)` is enabled in server.js so protocol is correct.
-      const proto = req.protocol || 'http';
-      const host = req.get('host');
-      imagePath = `${proto}://${host}/uploads/${req.file.filename}`;
+    let imagePublicId = '';
+    if (req.file && req.file.path) {
+      const upload = await uploadFile(req.file.path, 'subcategories');
+      imagePath = upload.url;
+      imagePublicId = upload.public_id;
     }
 
-    const sc = new SubCategory({ name, image: imagePath });
+    const sc = new SubCategory({ name, image: imagePath, imagePublicId });
     await sc.save();
     return res.status(201).json({ success: true, subcategory: sc });
   } catch (err) {
@@ -63,12 +62,19 @@ const updateSubCategory = async (req, res) => {
     const existing = await SubCategory.findOne({ _id: { $ne: id }, name: { $regex: `^${name}$`, $options: 'i' } });
     if (existing) return res.status(409).json({ success: false, message: 'Another subcategory with this name exists' });
 
-    // If a new image file was uploaded, update the image path too
+    // Load existing to handle Cloudinary deletion if needed
+    const existing = await SubCategory.findById(id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Subcategory not found' });
+
     const updateData = { name };
-    if (req.file && req.file.filename) {
-      const proto = req.protocol || 'http';
-      const host = req.get('host');
-      updateData.image = `${proto}://${host}/uploads/${req.file.filename}`;
+    if (req.file && req.file.path) {
+      // Remove old image from Cloudinary if present
+      if (existing.imagePublicId) {
+        try { await deleteFile(existing.imagePublicId); } catch (e) { console.warn('Failed to delete old subcategory image from Cloudinary', e); }
+      }
+      const upload = await uploadFile(req.file.path, 'subcategories');
+      updateData.image = upload.url;
+      updateData.imagePublicId = upload.public_id;
     }
 
     const sc = await SubCategory.findByIdAndUpdate(id, updateData, { new: true });
@@ -84,8 +90,16 @@ const updateSubCategory = async (req, res) => {
 const deleteSubCategory = async (req, res) => {
   try {
     const id = req.params.id;
-    const sc = await SubCategory.findByIdAndDelete(id);
-    if (!sc) return res.status(404).json({ success: false, message: 'Subcategory not found' });
+    const id = req.params.id;
+    const scExisting = await SubCategory.findById(id);
+    if (!scExisting) return res.status(404).json({ success: false, message: 'Subcategory not found' });
+
+    // Delete image from Cloudinary if present
+    if (scExisting.imagePublicId) {
+      try { await deleteFile(scExisting.imagePublicId); } catch (e) { console.warn('Failed to delete subcategory image from Cloudinary', e); }
+    }
+
+    await SubCategory.findByIdAndDelete(id);
     return res.json({ success: true, message: 'Subcategory deleted' });
   } catch (err) {
     console.error('deleteSubCategory error', err);

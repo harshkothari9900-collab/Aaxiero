@@ -1,6 +1,5 @@
 const { Gallery } = require('../Models/Gallery');
-const fs = require('fs');
-const path = require('path');
+const { uploadMultipleFiles, deleteFile, getPublicIdFromUrl } = require('../Services/cloudinaryService');
 
 const MAX_IMAGES = 20;
 
@@ -16,35 +15,34 @@ const createOrAddGallery = async (req, res) => {
 
     if (existing) {
       if (existing.images.length + files.length > MAX_IMAGES) {
-        // cleanup uploaded files
-        files.forEach(f => {
-          const p = path.join(process.cwd(), 'uploads', f.filename);
-          fs.unlink(p, () => {});
-        });
         return res.status(400).json({ success: false, message: `Max ${MAX_IMAGES} images allowed per category` });
       }
-      const newPaths = files.map(f => `/uploads/${f.filename}`);
-      existing.images.push(...newPaths);
+      
+      // Upload files to Cloudinary
+      const filePaths = files.map(f => f.path);
+      const uploadedImages = await uploadMultipleFiles(filePaths, `gallery/${categoryId}`);
+      const imageUrls = uploadedImages.map(img => img.url);
+      
+      existing.images.push(...imageUrls);
       await existing.save();
       return res.status(200).json({ success: true, gallery: existing });
     }
 
     if (files.length > MAX_IMAGES) {
-      // cleanup uploaded files
-      files.forEach(f => {
-        const p = path.join(process.cwd(), 'uploads', f.filename);
-        fs.unlink(p, () => {});
-      });
       return res.status(400).json({ success: false, message: `Max ${MAX_IMAGES} images allowed per category` });
     }
 
-    const images = files.map(f => `/uploads/${f.filename}`);
-    const g = new Gallery({ categoryId, images });
+    // Upload files to Cloudinary
+    const filePaths = files.map(f => f.path);
+    const uploadedImages = await uploadMultipleFiles(filePaths, `gallery/${categoryId}`);
+    const imageUrls = uploadedImages.map(img => img.url);
+    
+    const g = new Gallery({ categoryId, images: imageUrls });
     await g.save();
     return res.status(201).json({ success: true, gallery: g });
   } catch (err) {
     console.error('createOrAddGallery error', err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };
 
@@ -76,33 +74,40 @@ const replaceImages = async (req, res) => {
     const files = req.files || [];
     if (!files.length) return res.status(400).json({ success: false, message: 'At least one image required' });
     if (files.length > MAX_IMAGES) {
-      // cleanup
-      files.forEach(f => fs.unlink(path.join(process.cwd(), 'uploads', f.filename), () => {}));
       return res.status(400).json({ success: false, message: `Max ${MAX_IMAGES} images allowed per category` });
     }
 
     const existing = await Gallery.findOne({ categoryId });
     if (!existing) {
-      // create new
-      const images = files.map(f => `/uploads/${f.filename}`);
-      const g = new Gallery({ categoryId, images });
+      // create new gallery
+      const filePaths = files.map(f => f.path);
+      const uploadedImages = await uploadMultipleFiles(filePaths, `gallery/${categoryId}`);
+      const imageUrls = uploadedImages.map(img => img.url);
+      
+      const g = new Gallery({ categoryId, images: imageUrls });
       await g.save();
       return res.status(201).json({ success: true, gallery: g });
     }
 
-    // delete old files
-    existing.images.forEach(img => {
-      const p = path.join(process.cwd(), img.replace(/^\//, ''));
-      fs.unlink(p, () => {});
-    });
+    // Delete old images from Cloudinary
+    for (const imageUrl of existing.images) {
+      const publicId = getPublicIdFromUrl(imageUrl);
+      if (publicId) {
+        await deleteFile(publicId);
+      }
+    }
 
-    // set new images
-    existing.images = files.map(f => `/uploads/${f.filename}`);
+    // Upload new files to Cloudinary
+    const filePaths = files.map(f => f.path);
+    const uploadedImages = await uploadMultipleFiles(filePaths, `gallery/${categoryId}`);
+    const imageUrls = uploadedImages.map(img => img.url);
+    
+    existing.images = imageUrls;
     await existing.save();
     return res.json({ success: true, gallery: existing });
   } catch (err) {
     console.error('replaceImages error', err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };
 
@@ -112,17 +117,19 @@ const deleteGallery = async (req, res) => {
     const existing = await Gallery.findOne({ categoryId });
     if (!existing) return res.status(404).json({ success: false, message: 'Gallery not found' });
 
-    // delete files
-    existing.images.forEach(img => {
-      const p = path.join(process.cwd(), img.replace(/^\//, ''));
-      fs.unlink(p, () => {});
-    });
+    // Delete all images from Cloudinary
+    for (const imageUrl of existing.images) {
+      const publicId = getPublicIdFromUrl(imageUrl);
+      if (publicId) {
+        await deleteFile(publicId);
+      }
+    }
 
     await Gallery.findByIdAndDelete(existing._id);
     return res.json({ success: true, message: 'Gallery deleted' });
   } catch (err) {
     console.error('deleteGallery error', err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };
 
@@ -137,21 +144,20 @@ const addImagesToGallery = async (req, res) => {
     if (!existing) return res.status(404).json({ success: false, message: 'Gallery not found' });
 
     if (existing.images.length + files.length > MAX_IMAGES) {
-      // cleanup uploaded files
-      files.forEach(f => {
-        const p = path.join(process.cwd(), 'uploads', f.filename);
-        fs.unlink(p, () => {});
-      });
       return res.status(400).json({ success: false, message: `Max ${MAX_IMAGES} images allowed per category` });
     }
 
-    const newPaths = files.map(f => `/uploads/${f.filename}`);
-    existing.images.push(...newPaths);
+    // Upload files to Cloudinary
+    const filePaths = files.map(f => f.path);
+    const uploadedImages = await uploadMultipleFiles(filePaths, `gallery/${existing.categoryId}`);
+    const imageUrls = uploadedImages.map(img => img.url);
+    
+    existing.images.push(...imageUrls);
     await existing.save();
     return res.status(200).json({ success: true, gallery: existing });
   } catch (err) {
     console.error('addImagesToGallery error', err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };
 
@@ -169,11 +175,11 @@ const deleteImageFromGallery = async (req, res) => {
     const imageIndex = gallery.images.indexOf(imageUrl);
     if (imageIndex === -1) return res.status(404).json({ success: false, message: 'Image not found in gallery' });
 
-    // Delete the physical file
-    const p = path.join(process.cwd(), imageUrl.replace(/^\//, ''));
-    fs.unlink(p, (err) => {
-      if (err) console.error('Error deleting file:', err);
-    });
+    // Delete from Cloudinary
+    const publicId = getPublicIdFromUrl(imageUrl);
+    if (publicId) {
+      await deleteFile(publicId);
+    }
 
     // Remove from array
     gallery.images.splice(imageIndex, 1);
@@ -182,7 +188,7 @@ const deleteImageFromGallery = async (req, res) => {
     return res.json({ success: true, message: 'Image deleted', gallery });
   } catch (err) {
     console.error('deleteImageFromGallery error', err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };
 
