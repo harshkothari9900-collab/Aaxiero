@@ -7,6 +7,7 @@ const adminProjectRoutes = require('./adminProjectRoutes');
 const adminIconRoutes = require('./adminIconRoutes');
 const adminServiceRoutes = require('./adminServiceRoutes');
 const adminGalleryRoutes = require('./adminGalleryRoutes');
+const adminVideoRoutes = require('./adminVideoRoutes');
 
 // Endpoint base will be mounted under /aaxiero in server.js
 router.post('/admin/login', login);
@@ -23,5 +24,7 @@ router.use('/admin/icons', adminIconRoutes);
 router.use('/admin/service', adminServiceRoutes);
 // Mount admin gallery endpoints under /admin/gallery
 router.use('/admin/gallery', adminGalleryRoutes);
+// Mount admin video endpoints under /admin/videos
+router.use('/admin/videos', adminVideoRoutes);
 
 module.exports = router;

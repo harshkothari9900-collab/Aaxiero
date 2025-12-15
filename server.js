@@ -39,9 +39,11 @@ mongoose.connect(process.env.MONGO_URI, {
 // Mount routes
 const adminRoutes = require('./Routes/adminRoutes');
 const categoryRoutes = require('./Routes/categoryRoutes');
+const videoRoutes = require('./Routes/videoRoutes');
 
 app.use('/aaxiero', adminRoutes);
 app.use('/aaxiero', categoryRoutes);
+app.use('/aaxiero', videoRoutes);
 
 // Health check route
 app.get('/health', (req, res) => {
