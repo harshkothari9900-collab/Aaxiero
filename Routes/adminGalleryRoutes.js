@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
-const { createOrAddGallery, getGalleries, getGalleryByCategory, replaceImages, deleteGallery, addImagesToGallery, deleteImageFromGallery } = require('../Controller/galleryController');
+const { createOrAddGallery, getGalleries, getGalleryByCategory, replaceImages, deleteGallery, addImagesToGallery, deleteImageFromGallery, getTotalImagesCount } = require('../Controller/galleryController');
 
 // Multer setup - store in uploads folder (already used by other controllers)
 const storage = multer.diskStorage({
@@ -23,6 +23,9 @@ router.post('/:galleryId', upload.array('images', 20), addImagesToGallery);
 
 // GET /admin/gallry -> list all galleries
 router.get('/', getGalleries);
+
+// GET /admin/gallery/total -> get total number of images
+router.get('/total', getTotalImagesCount);
 
 // GET /admin/gallry/:categoryId -> get gallery for a category
 router.get('/:categoryId', getGalleryByCategory);

@@ -192,6 +192,20 @@ const deleteImageFromGallery = async (req, res) => {
   }
 };
 
+const getTotalImagesCount = async (req, res) => {
+  try {
+    const galleries = await Gallery.find();
+    let totalImages = 0;
+    galleries.forEach(gallery => {
+      totalImages += gallery.images.length;
+    });
+    return res.json({ success: true, totalImages });
+  } catch (err) {
+    console.error('getTotalImagesCount error', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 module.exports = {
   createOrAddGallery,
   getGalleries,
@@ -199,5 +213,6 @@ module.exports = {
   replaceImages,
   deleteGallery,
   addImagesToGallery,
-  deleteImageFromGallery
+  deleteImageFromGallery,
+  getTotalImagesCount
 };
